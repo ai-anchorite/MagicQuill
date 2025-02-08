@@ -1,4 +1,5 @@
 import os
+import math
 import folder_paths
 import comfy.diffusers_load
 import comfy.samplers
@@ -155,8 +156,8 @@ class KSampler:
 
 class VAEDecode:
     def decode(self, vae, samples):
-        return (vae.decode(samples["samples"]), )
-
+        return (vae.decode_tiled(samples["samples"]), )
+        
 class ColorDetector:
     def __call__(self, input_image=None, detect_resolution=2048, output_type=None, **kwargs):
         input_image, output_type = common_input_validate(input_image, output_type, **kwargs)

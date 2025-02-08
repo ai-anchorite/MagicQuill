@@ -1,27 +1,26 @@
-import subprocess
-import os
-import gradio as gr
-import os
-from gradio_magicquill import MagicQuill
-import random
-import torch
-import numpy as np
-from PIL import Image, ImageOps
 import base64
 import io
-from fastapi import FastAPI, Request
+import os
+import random
+import time
+import gc
+
+import gradio as gr
+import numpy as np
+import torch
 import uvicorn
-import requests
 from MagicQuill import folder_paths
 from MagicQuill.llava_new import LLaVAModel
 from MagicQuill.scribble_color_edit import ScribbleColorEditModel
-import time
-import io
+from PIL import Image, ImageOps
+from fastapi import FastAPI, Request
+from gradio_magicquill import MagicQuill
 
 AUTO_SAVE = False
 RES = 512
 
-llavaModel = LLaVAModel()
+# llavaModel = LLaVAModel()
+llavaModel = None
 scribbleColorEditModel = ScribbleColorEditModel()
 
 def tensor_to_base64(tensor):
@@ -177,6 +176,11 @@ def generate_image_handler(x, ckpt_name, negative_prompt, fine_edge, grow_size, 
     global AUTO_SAVE
     if AUTO_SAVE:
         auto_save_generated_image(res)
+        
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()    
+        
     return x
 
 def auto_save_generated_image(res):
@@ -192,6 +196,13 @@ def auto_save_generated_image(res):
     save_path = os.path.join("output", f"magicquill_{timestamp}.png")
     img.save(save_path)
     print(f"Image saved to: {save_path}")
+    
+def manual_save_image(x):
+    # Check if a generated image exists
+    if x and 'from_backend' in x and 'generated_image' in x['from_backend']:
+        auto_save_generated_image(x['from_backend']['generated_image'])
+        return "Image saved successfully!"
+    return "No image to save."    
 
 css = '''
 .row {
@@ -210,6 +221,10 @@ with gr.Blocks(css=css) as demo:
     with gr.Row(elem_classes="row"):
         with gr.Column():
             btn = gr.Button("Run", variant="primary")
+            save_btn = gr.Button("Save Image", variant="secondary")
+            
+            
+            
         with gr.Column():
             with gr.Accordion("parameters", open=False):
                 ckpt_name = gr.Dropdown(
@@ -227,7 +242,7 @@ with gr.Blocks(css=css) as demo:
                     label="Resolution (Please update this before you upload the image ;).)",
                     minimum=256,
                     maximum=2048,
-                    value=512,
+                    value=768,
                     step=64,
                     interactive=True
                 )
@@ -304,7 +319,7 @@ with gr.Blocks(css=css) as demo:
                 sampler_name = gr.Dropdown(
                     label="Sampler Name",
                     choices=["euler", "euler_ancestral", "heun", "heunpp2","dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "dpm_adaptive", "dpmpp_2s_ancestral", "dpmpp_sde", "dpmpp_sde_gpu", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm", "ddim", "uni_pc", "uni_pc_bh2"],
-                    value='euler_ancestral',
+                    value='dpmpp_2m_sde_gpu',
                     interactive=True
                 )
                 scheduler = gr.Dropdown(
@@ -325,7 +340,8 @@ with gr.Blocks(css=css) as demo:
         auto_save_checkbox.change(fn=update_auto_save, inputs=[auto_save_checkbox])
         resolution_slider.change(fn=update_resolution, inputs=[resolution_slider])
         btn.click(generate_image_handler, inputs=[ms, ckpt_name, negative_prompt, fine_edge, grow_size, edge_strength, color_strength, inpaint_strength, seed, steps, cfg, sampler_name, scheduler], outputs=ms)
-    
+        save_btn.click(fn=manual_save_image, inputs=[ms], outputs=gr.Textbox(visible=False))
+
 app = FastAPI()
 
 @app.post("/magic_quill/guess_prompt")
